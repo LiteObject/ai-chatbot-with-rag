@@ -81,3 +81,26 @@ Created new vector store
 Chatbot ready! Type 'quit' to exit.
 
 You: What is the main topic of the documents?
+```
+
+## How It Works
+
+1. **Load PDFs**: Reads all PDF files from the `docs/` folder
+2. **Chunk Text**: Splits documents into smaller chunks (1000 chars with 200 overlap)
+3. **Create Embeddings**: Converts chunks to vectors using OpenAI embeddings
+4. **Store in ChromaDB**: Persists vectors locally for fast retrieval
+5. **Query**: Retrieves relevant chunks and sends them with your question to GPT
+
+## Configuration
+
+You can adjust these settings in `chatbot.py`:
+
+```python
+CHUNK_SIZE = 1000        # Size of text chunks
+CHUNK_OVERLAP = 200      # Overlap between chunks
+model="gpt-4o-mini"      # LLM model
+```
+
+## License
+
+MIT
