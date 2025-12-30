@@ -1,6 +1,17 @@
-# Scaling RAG Chatbot to 10 Million Users on Azure
+# Scaling RAG Chatbot for 300,000 Daily Active Users on Azure
 
-This document outlines the architectural changes, Azure services, and implementation steps required to scale this RAG chatbot from a single-user CLI application to a production system supporting 10 million active users.
+This document outlines the architectural changes, Azure services, and implementation steps required to scale this RAG chatbot from a single-user CLI application to a **public, stateless** production system supporting **300,000 daily active users**.
+
+---
+
+## Key Design Principles
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Stateless** | No user accounts, no conversation history stored |
+| **Privacy-first** | No PII collected, no tracking |
+| **Simple document corpus** | Small, curated set of PDFs (admin-managed) |
+| **Cost-efficient** | Aggressive caching, minimal infrastructure |
 
 ---
 
@@ -23,13 +34,10 @@ This document outlines the architectural changes, Azure services, and implementa
 | Component | Current State | Limitation |
 |-----------|--------------|------------|
 | **Interface** | CLI (`main.py`) | Single user, no concurrent access |
-| **Conversation Memory** | In-memory Python dict | Lost on restart, no persistence, ~100MB RAM limit |
-| **Vector Store** | Local ChromaDB (SQLite) | Single-node, ~1M vectors max, no horizontal scaling |
-| **LLM Calls** | Synchronous blocking | One request at a time, timeout issues |
-| **Document Processing** | On-demand at startup | Slow cold starts, repeated processing |
-| **Authentication** | None | No user isolation or access control |
-| **Caching** | None | Repeated API calls, high latency & cost |
-| **Error Handling** | Basic try/catch | No retry logic, circuit breakers |
+| **Conversation Memory** | In-memory Python dict | Per-session only, not scalable |
+| **Vector Store** | Local ChromaDB (SQLite) | Single-node, no horizontal scaling |
+| **LLM Calls** | Synchronous blocking | One request at a time |
+| **Caching** | None | Repeated API calls, high latency and cost |
 
 ---
 
@@ -46,9 +54,9 @@ This document outlines the architectural changes, Azure services, and implementa
                                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              Azure API Management                               │
-│                              - Rate limiting (per user/tier)                    │
+│                              - Rate limiting (per IP/anonymous)                 │
 │                              - API versioning                                   │
-│                              - Authentication (OAuth2/JWT)                      │
+│                              - Abuse protection                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                     ┌────────────────────┼────────────────────┐
@@ -57,30 +65,31 @@ This document outlines the architectural changes, Azure services, and implementa
           ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
           │  Azure Container│  │  Azure Container│  │  Azure Container│
           │  Apps (FastAPI) │  │  Apps (FastAPI) │  │  Apps (FastAPI) │
+          │  - Stateless    │  │  - Stateless    │  │  - Stateless    │
           │  - Auto-scale   │  │  - Auto-scale   │  │  - Auto-scale   │
-          │  - 0-1000 nodes │  │  - 0-1000 nodes │  │  - 0-1000 nodes │
           └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
                    │                    │                    │
                    └────────────────────┼────────────────────┘
                                         │
-        ┌───────────────┬───────────────┼───────────────┬───────────────┐
-        │               │               │               │               │
-        ▼               ▼               ▼               ▼               ▼
-┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐
-│ Azure Cache   │ │ Azure Cosmos  │ │ Azure AI      │ │ Azure Service │ │ Azure OpenAI  │
-│ for Redis     │ │ DB for        │ │ Search        │ │ Bus           │ │ Service       │
-│               │ │ PostgreSQL    │ │ (Vector DB)   │ │ (Queue)       │ │               │
-│ - Sessions    │ │ - History     │ │ - Embeddings  │ │ - Async jobs  │ │ - GPT-4       │
-│ - Cache       │ │ - Users       │ │ - 1B+ vectors │ │ - Doc ingest  │ │ - Embeddings  │
-└───────────────┘ └───────────────┘ └───────────────┘ └───────────────┘ └───────────────┘
-                                        │
-                                        ▼
-                            ┌───────────────────────┐
-                            │  Azure Blob Storage   │
-                            │  - PDF documents      │
-                            │  - Processed chunks   │
-                            └───────────────────────┘
+              ┌─────────────────────────┼─────────────────────────┐
+              │                         │                         │
+              ▼                         ▼                         ▼
+    ┌───────────────┐         ┌───────────────┐         ┌───────────────┐
+    │ Azure Cache   │         │ Azure AI      │         │ Azure OpenAI  │
+    │ for Redis     │         │ Search        │         │ Service       │
+    │               │         │ (Vector DB)   │         │               │
+    │ - Response    │         │ - Embeddings  │         │ - GPT-4o-mini │
+    │   cache       │         │ - Small index │         │ - Embeddings  │
+    │ - Rate limit  │         │               │         │               │
+    └───────────────┘         └───────────────┘         └───────────────┘
 ```
+
+**Services NOT needed (simplified architecture):**
+
+- Azure Cosmos DB - No user data to store
+- Azure Service Bus - Static documents, no ingestion pipeline
+- Azure Blob Storage - Documents pre-indexed at deploy time
+- Microsoft Entra ID - No user authentication
 
 ---
 
@@ -90,23 +99,19 @@ This document outlines the architectural changes, Azure services, and implementa
 
 | Service | Purpose | SKU Recommendation | Est. Monthly Cost |
 |---------|---------|-------------------|-------------------|
-| **Azure Container Apps** | API hosting with auto-scale | Consumption plan | $2,000 - $15,000 |
-| **Azure OpenAI Service** | LLM & embeddings | PTU (Provisioned) | $20,000 - $100,000+ |
-| **Azure AI Search** | Vector database | S2 or S3 | $2,500 - $10,000 |
-| **Azure Cache for Redis** | Session & response cache | P2 (13GB) | $1,200 |
-| **Azure Cosmos DB for PostgreSQL** | Conversation history | Citus cluster | $3,000 - $8,000 |
-| **Azure Service Bus** | Async job queue | Premium | $700 |
-| **Azure Blob Storage** | Document storage | Hot tier | $500 |
+| **Azure Container Apps** | Stateless API hosting | Consumption plan | $500 - $1,500 |
+| **Azure OpenAI Service** | LLM and embeddings | Pay-as-you-go (S0) | $8,000 - $15,000 |
+| **Azure AI Search** | Vector database | S1 (1 unit) | $250 |
+| **Azure Cache for Redis** | Response and rate limit cache | Standard C2 (6GB) | $200 |
 
 ### Supporting Services
 
 | Service | Purpose | Est. Monthly Cost |
 |---------|---------|-------------------|
-| **Azure Front Door** | Global CDN, WAF, DDoS | $1,500 |
-| **Azure API Management** | Rate limiting, auth | $2,800 (Premium) |
-| **Azure Key Vault** | Secrets management | $50 |
-| **Azure Monitor + App Insights** | Observability | $1,000 |
-| **Microsoft Entra ID** | Authentication | $600 (P1) |
+| **Azure Front Door** | CDN, WAF, DDoS | $350 |
+| **Azure API Management** | Rate limiting | $150 (Basic) |
+| **Azure Key Vault** | Secrets management | $10 |
+| **Azure Monitor + App Insights** | Observability | $200 |
 
 ---
 
@@ -116,65 +121,89 @@ This document outlines the architectural changes, Azure services, and implementa
 
 **Current:** `main.py` with CLI input loop
 
-**Target:** FastAPI with async endpoints
+**Target:** Stateless FastAPI with no authentication
 
 ```python
 # api/main.py
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
-import asyncio
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import uuid
 
 app = FastAPI(title="RAG Chatbot API")
 
-@app.post("/chat")
-async def chat(
-    request: ChatRequest,
-    user: User = Depends(get_current_user)
-):
-    """Async chat endpoint with user context."""
-    response = await chatbot.chat_async(
-        question=request.message,
-        session_id=f"{user.id}:{request.session_id}"
-    )
-    return ChatResponse(message=response)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure for your frontend domain
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
 
-@app.post("/chat/stream")
-async def chat_stream(
-    request: ChatRequest,
-    user: User = Depends(get_current_user)
-):
-    """Server-Sent Events for streaming responses."""
-    return StreamingResponse(
-        chatbot.chat_stream(request.message, user.id),
-        media_type="text/event-stream"
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None  # Optional, for multi-turn in same session
+
+class ChatResponse(BaseModel):
+    answer: str
+    session_id: str
+    sources: list[str] = []
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Stateless chat endpoint.
+    - No user tracking
+    - Session ID only for optional multi-turn context (in-memory, ephemeral)
+    - No data persisted
+    """
+    session_id = request.session_id or str(uuid.uuid4())
+    
+    # Check response cache first
+    cached = await cache.get_cached_response(request.message)
+    if cached:
+        return ChatResponse(answer=cached, session_id=session_id)
+    
+    # Generate response
+    answer, sources = await chatbot.chat_async(
+        question=request.message,
+        session_id=session_id
     )
+    
+    # Cache for future identical questions
+    await cache.cache_response(request.message, answer)
+    
+    return ChatResponse(
+        answer=answer,
+        session_id=session_id,
+        sources=sources
+    )
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 ```
 
 **Azure Deployment:**
-- Azure Container Apps with min 3 replicas
-- Scale rule: HTTP concurrent requests > 100
-- Max replicas: 1000
+
+- Azure Container Apps with min 2 replicas
+- Scale rule: HTTP concurrent requests > 50
+- Max replicas: 100
 
 ---
 
 ### 2. Vector Store (Replace ChromaDB)
 
-**Current:** Local ChromaDB with SQLite backend (~1M vector limit)
+**Current:** Local ChromaDB with SQLite backend
 
-**Target:** Azure AI Search with vector search capability
+**Target:** Azure AI Search (pre-indexed at deployment)
 
 ```python
 # vector_store_azure.py
 from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexClient
-from azure.search.documents.indexes.models import (
-    SearchIndex,
-    SearchField,
-    VectorSearch,
-    HnswAlgorithmConfiguration,
-)
+from azure.core.credentials import AzureKeyCredential
+from langchain_core.vectorstores import VectorStore
 
-class AzureAISearchVectorStore:
+class AzureAISearchVectorStore(VectorStore):
     def __init__(self):
         self.client = SearchClient(
             endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
@@ -187,104 +216,182 @@ class AzureAISearchVectorStore:
         query_embedding: list[float], 
         k: int = 4
     ) -> list[Document]:
-        results = await self.client.search(
+        results = self.client.search(
             search_text=None,
             vector_queries=[{
                 "vector": query_embedding,
                 "k_nearest_neighbors": k,
                 "fields": "content_vector"
-            }]
+            }],
+            select=["content", "source", "page"]
         )
-        return [self._to_document(r) async for r in results]
+        return [
+            Document(
+                page_content=r["content"],
+                metadata={"source": r["source"], "page": r["page"]}
+            )
+            for r in results
+        ]
 ```
 
-**Scaling Benefits:**
-- Handles billions of vectors
-- Built-in replication and sharding
-- 99.9% SLA
-- Semantic ranking and hybrid search
-
----
-
-### 3. Conversation Memory (Replace In-Memory Dict)
-
-**Current:** Python dict in memory
-
-**Target:** Azure Cosmos DB for PostgreSQL + Redis cache
+**Document Indexing (One-time at deployment):**
 
 ```python
-# memory/conversation_store.py
-from redis import asyncio as aioredis
-import asyncpg
+# scripts/index_documents.py
+"""
+Run this script during CI/CD deployment when documents change.
+No need for runtime ingestion pipeline.
+"""
 
-class ConversationStore:
-    def __init__(self):
-        self.redis = aioredis.from_url(os.getenv("REDIS_URL"))
-        self.pg_pool = None
+async def index_all_documents():
+    # Load PDFs from local docs/ folder
+    documents = load_documents("docs/")
+    chunks = split_documents(documents)
     
-    async def get_history(self, session_id: str) -> list[dict]:
-        # Try cache first
-        cached = await self.redis.get(f"history:{session_id}")
-        if cached:
-            return json.loads(cached)
-        
-        # Fall back to database
-        async with self.pg_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT role, content, created_at
-                FROM conversation_history
-                WHERE session_id = $1
-                ORDER BY created_at DESC
-                LIMIT 20
-            """, session_id)
-        
-        history = [dict(r) for r in rows]
-        
-        # Cache for 30 minutes
-        await self.redis.setex(
-            f"history:{session_id}",
-            1800,
-            json.dumps(history)
-        )
-        return history
+    # Generate embeddings
+    embeddings = await generate_embeddings(chunks)
     
-    async def add_message(self, session_id: str, role: str, content: str):
-        async with self.pg_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO conversation_history 
-                (session_id, role, content)
-                VALUES ($1, $2, $3)
-            """, session_id, role, content)
-        
-        # Invalidate cache
-        await self.redis.delete(f"history:{session_id}")
-```
+    # Upload to Azure AI Search
+    await upload_to_search_index(chunks, embeddings)
+    
+    print(f"Indexed {len(chunks)} chunks from {len(documents)} documents")
 
-**Database Schema:**
-
-```sql
--- Citus distributed table for horizontal scaling
-CREATE TABLE conversation_history (
-    id BIGSERIAL,
-    session_id TEXT NOT NULL,
-    user_id UUID NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    tokens_used INTEGER,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (session_id, id)
-);
-
--- Distribute by session_id for locality
-SELECT create_distributed_table('conversation_history', 'session_id');
-
--- Index for user queries
-CREATE INDEX idx_history_user ON conversation_history(user_id, created_at DESC);
+if __name__ == "__main__":
+    asyncio.run(index_all_documents())
 ```
 
 ---
 
-### 4. LLM Provider (Add Async + Rate Limiting)
+### 3. Caching Layer (Critical for Cost and Performance)
+
+**Purpose:** Cache responses to reduce LLM calls by 60-80%
+
+```python
+# cache/response_cache.py
+import hashlib
+import json
+from redis import asyncio as aioredis
+
+class ResponseCache:
+    def __init__(self):
+        self.redis = aioredis.from_url(
+            os.getenv("REDIS_URL"),
+            decode_responses=True
+        )
+    
+    def _hash_question(self, question: str) -> str:
+        """Normalize and hash question for cache key."""
+        normalized = question.lower().strip()
+        return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+    
+    async def get_cached_response(self, question: str) -> str | None:
+        """Check if we have answered this question before."""
+        key = f"resp:{self._hash_question(question)}"
+        return await self.redis.get(key)
+    
+    async def cache_response(
+        self, 
+        question: str, 
+        answer: str,
+        ttl: int = 3600  # 1 hour default
+    ):
+        """Cache response for identical future questions."""
+        key = f"resp:{self._hash_question(question)}"
+        await self.redis.setex(key, ttl, answer)
+    
+    async def get_cached_embedding(self, text: str) -> list[float] | None:
+        """Cache embeddings to reduce API calls."""
+        key = f"emb:{self._hash_question(text)}"
+        cached = await self.redis.get(key)
+        return json.loads(cached) if cached else None
+    
+    async def cache_embedding(self, text: str, embedding: list[float]):
+        key = f"emb:{self._hash_question(text)}"
+        await self.redis.setex(key, 86400, json.dumps(embedding))  # 24h TTL
+```
+
+**Cache Strategy:**
+
+| Cache Type | TTL | Expected Hit Rate |
+|------------|-----|-------------------|
+| Exact question match | 1 hour | 40-60% |
+| Embeddings | 24 hours | 80%+ |
+| Rate limit counters | 1 minute | N/A |
+
+---
+
+### 4. Rate Limiting (Abuse Protection)
+
+Since there is no authentication, rate limiting by IP is essential:
+
+```python
+# middleware/rate_limit.py
+from fastapi import Request, HTTPException
+
+class RateLimiter:
+    def __init__(self, redis, requests_per_minute: int = 10):
+        self.redis = redis
+        self.rpm = requests_per_minute
+    
+    async def check_rate_limit(self, request: Request):
+        """Limit requests per IP address."""
+        client_ip = request.client.host
+        key = f"ratelimit:{client_ip}"
+        
+        current = await self.redis.incr(key)
+        if current == 1:
+            await self.redis.expire(key, 60)  # 1 minute window
+        
+        if current > self.rpm:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Please wait a minute."
+            )
+```
+
+---
+
+### 5. Session Memory (Ephemeral, In-Memory)
+
+For multi-turn conversations within a session, use a simple TTL-based memory:
+
+```python
+# memory/ephemeral_memory.py
+
+class EphemeralMemory:
+    """
+    Short-lived conversation memory.
+    - Stored in Redis with short TTL
+    - No permanent storage
+    - Automatically expires
+    """
+    
+    def __init__(self, redis, ttl: int = 900):  # 15 minutes
+        self.redis = redis
+        self.ttl = ttl
+    
+    async def get_history(self, session_id: str) -> list[dict]:
+        key = f"session:{session_id}"
+        data = await self.redis.get(key)
+        return json.loads(data) if data else []
+    
+    async def add_message(self, session_id: str, role: str, content: str):
+        key = f"session:{session_id}"
+        history = await self.get_history(session_id)
+        
+        # Keep only last 10 messages
+        history.append({"role": role, "content": content})
+        history = history[-10:]
+        
+        await self.redis.setex(key, self.ttl, json.dumps(history))
+    
+    async def clear(self, session_id: str):
+        await self.redis.delete(f"session:{session_id}")
+```
+
+---
+
+### 6. LLM Provider (Add Async and Retry)
 
 **Current:** Synchronous OpenAI calls
 
@@ -331,98 +438,10 @@ class AzureOpenAIProvider:
 ```
 
 **Azure OpenAI Provisioning:**
-- Use PTU (Provisioned Throughput Units) for predictable performance
-- Estimate: 10M users × 5 msgs/day × 500 tokens = 25B tokens/month
-- Required: ~500-1000 PTUs for GPT-4
 
----
-
-### 5. Document Ingestion Pipeline
-
-**Current:** Load PDFs on startup
-
-**Target:** Async pipeline with Azure Service Bus
-
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Upload    │───▶│  Service    │───▶│   Worker    │───▶│  AI Search  │
-│   API       │    │   Bus       │    │  (Chunking) │    │  (Index)    │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-      │                                      │
-      ▼                                      ▼
-┌─────────────┐                       ┌─────────────┐
-│    Blob     │                       │   Azure     │
-│   Storage   │                       │   OpenAI    │
-│   (PDFs)    │                       │ (Embeddings)│
-└─────────────┘                       └─────────────┘
-```
-
-```python
-# workers/document_processor.py
-from azure.servicebus.aio import ServiceBusClient
-from azure.storage.blob.aio import BlobServiceClient
-
-class DocumentProcessor:
-    async def process_message(self, message):
-        # Download PDF from Blob Storage
-        blob_url = json.loads(str(message))["blob_url"]
-        pdf_content = await self.download_blob(blob_url)
-        
-        # Extract and chunk text
-        chunks = self.chunk_document(pdf_content)
-        
-        # Generate embeddings in batches
-        embeddings = await self.batch_embed(chunks)
-        
-        # Index in Azure AI Search
-        await self.index_documents(chunks, embeddings)
-        
-        # Mark complete
-        await message.complete()
-```
-
----
-
-### 6. Caching Strategy
-
-**Multi-level caching with Redis:**
-
-```python
-# cache/manager.py
-class CacheManager:
-    def __init__(self, redis: Redis):
-        self.redis = redis
-    
-    async def get_or_compute_embedding(
-        self, 
-        text: str, 
-        compute_fn
-    ) -> list[float]:
-        """Cache embeddings to reduce API calls."""
-        cache_key = f"emb:{hashlib.md5(text.encode()).hexdigest()}"
-        
-        cached = await self.redis.get(cache_key)
-        if cached:
-            return json.loads(cached)
-        
-        embedding = await compute_fn(text)
-        await self.redis.setex(cache_key, 86400, json.dumps(embedding))
-        return embedding
-    
-    async def get_cached_response(
-        self,
-        question: str,
-        context_hash: str
-    ) -> str | None:
-        """Cache frequent Q&A pairs."""
-        cache_key = f"qa:{hashlib.md5(f'{question}:{context_hash}'.encode()).hexdigest()}"
-        return await self.redis.get(cache_key)
-```
-
-**Cache Hit Targets:**
-- Embeddings: 80%+ hit rate (same questions asked repeatedly)
-- Responses: 30-40% hit rate (common questions)
-- Session data: 95%+ hit rate
+- Standard Pay-as-you-go is sufficient for this volume
+- Estimate: 300k users x 5 msgs/day x 1000 tokens = 1.5B tokens/month
+- Cost Strategy: Use gpt-4o-mini for 80% of queries to keep costs under $15k/month
 
 ---
 
