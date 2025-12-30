@@ -1,15 +1,37 @@
-# LangChain and OpenAI
+# =============================================================================
+# Core LangChain
+# =============================================================================
 langchain>=0.3.0
-langchain-openai>=0.2.0
+langchain-core>=0.3.0
 langchain-community>=0.3.0
 langchain-text-splitters>=0.3.0
-langchain-chroma>=0.1.0
 
-# Vector store
+# =============================================================================
+# LLM Providers (install the one you need)
+# =============================================================================
+langchain-openai>=0.2.0       # OpenAI & Azure OpenAI
+# langchain-anthropic>=0.3.0  # Anthropic Claude (uncomment to use)
+# langchain-ollama>=0.2.0     # Ollama local models (uncomment to use)
+
+# =============================================================================
+# Embedding Providers (install the one you need)
+# =============================================================================
+# langchain-huggingface>=0.1.0  # HuggingFace local embeddings (uncomment to use)
+# sentence-transformers>=2.2.0  # Required for HuggingFace embeddings
+
+# =============================================================================
+# Vector Stores (install the one you need)
+# =============================================================================
+langchain-chroma>=0.1.0    # ChromaDB (default)
 chromadb>=0.5.0
+# faiss-cpu>=1.7.0         # FAISS (uncomment to use)
 
-# PDF processing
+# =============================================================================
+# Document Processing
+# =============================================================================
 pypdf>=4.0.0
 
-# Environment variables
+# =============================================================================
+# Utilities
+# =============================================================================
 python-dotenv>=1.0.0
