@@ -49,14 +49,7 @@ This document outlines the architectural changes, Azure services, and implementa
 │                              - Global load balancing                            │
 │                              - DDoS protection                                  │
 │                              - SSL termination                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                         │
-                                         ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Azure API Management                               │
-│                              - Rate limiting (per IP/anonymous)                 │
-│                              - API versioning                                   │
-│                              - Abuse protection                                 │
+│                              - Basic rate limiting                              │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                          │
                     ┌────────────────────┼────────────────────┐
@@ -84,13 +77,6 @@ This document outlines the architectural changes, Azure services, and implementa
     └───────────────┘         └───────────────┘         └───────────────┘
 ```
 
-**Services NOT needed (simplified architecture):**
-
-- Azure Cosmos DB - No user data to store
-- Azure Service Bus - Static documents, no ingestion pipeline
-- Azure Blob Storage - Documents pre-indexed at deploy time
-- Microsoft Entra ID - No user authentication
-
 ---
 
 ## Azure Services Required
@@ -108,8 +94,7 @@ This document outlines the architectural changes, Azure services, and implementa
 
 | Service | Purpose | Est. Monthly Cost |
 |---------|---------|-------------------|
-| **Azure Front Door** | CDN, WAF, DDoS | $350 |
-| **Azure API Management** | Rate limiting | $150 (Basic) |
+| **Azure Front Door** | CDN, WAF, DDoS, rate limiting | $350 |
 | **Azure Key Vault** | Secrets management | $10 |
 | **Azure Monitor + App Insights** | Observability | $200 |
 
@@ -447,58 +432,53 @@ class AzureOpenAIProvider:
 
 ## Implementation Phases
 
-### Phase 1: API Foundation (Weeks 1-4)
+### Phase 1: API Foundation (Weeks 1-2)
+
 - [ ] Create FastAPI wrapper around existing chatbot
-- [ ] Add authentication with Microsoft Entra ID
+- [ ] Add response caching with Redis
+- [ ] Implement IP-based rate limiting
 - [ ] Deploy to Azure Container Apps
-- [ ] Set up Azure API Management
+- [ ] Set up Azure Front Door
 
-### Phase 2: Data Layer Migration (Weeks 5-8)
-- [ ] Migrate vector store to Azure AI Search
-- [ ] Set up Azure Cosmos DB for PostgreSQL
-- [ ] Implement Redis caching layer
-- [ ] Create conversation persistence
+### Phase 2: Vector Store Migration (Weeks 3-4)
 
-### Phase 3: Async & Scale (Weeks 9-12)
-- [ ] Convert to async/await patterns
-- [ ] Implement Azure Service Bus for document ingestion
-- [ ] Add circuit breakers and retry logic
-- [ ] Set up auto-scaling rules
+- [ ] Set up Azure AI Search index
+- [ ] Create one-time indexing script
+- [ ] Migrate from ChromaDB to Azure AI Search
+- [ ] Test retrieval quality
 
-### Phase 4: Production Readiness (Weeks 13-16)
+### Phase 3: Production Hardening (Weeks 5-6)
+
 - [ ] Azure Front Door with WAF
-- [ ] Comprehensive monitoring (App Insights)
-- [ ] Load testing (10M user simulation)
-- [ ] Disaster recovery setup
-- [ ] Security audit
+- [ ] Auto-scaling configuration
+- [ ] Health checks and monitoring
+- [ ] Load testing
 
 ---
 
 ## Cost Estimation
 
-### Monthly Cost Breakdown (10M Active Users)
+### Monthly Cost Breakdown (300K Daily Active Users)
 
 | Category | Service | Monthly Cost |
 |----------|---------|--------------|
-| **Compute** | Container Apps (avg 50 replicas) | $8,000 |
-| **AI/ML** | Azure OpenAI (500 PTUs) | $50,000 |
-| **Database** | Cosmos DB PostgreSQL (16 nodes) | $6,000 |
-| **Search** | Azure AI Search S3 | $8,000 |
-| **Cache** | Redis P2 | $1,200 |
-| **Networking** | Front Door + bandwidth | $3,000 |
-| **Storage** | Blob (10TB) + ops | $500 |
-| **Messaging** | Service Bus Premium | $700 |
-| **Monitoring** | App Insights + Log Analytics | $1,500 |
-| **Security** | Entra ID P1 + Key Vault | $700 |
-| **API Gateway** | API Management Premium | $2,800 |
+| **Compute** | Container Apps (5-15 replicas) | $800 |
+| **AI/ML** | Azure OpenAI (GPT-4o-mini) | $10,000 |
+| **Search** | Azure AI Search S1 | $250 |
+| **Cache** | Redis Standard C2 | $200 |
+| **Networking** | Front Door | $350 |
+| **Monitoring** | App Insights | $200 |
+| **Security** | Key Vault | $10 |
 | | | |
-| **Total** | | **~$82,400/month** |
+| **Total** | | **~$11,800/month** |
 
-**Cost Optimization Tips:**
-- Use Reserved Capacity (1-3 year) for 30-50% savings
-- Implement response caching to reduce LLM calls
-- Use GPT-4o-mini for simple queries (10x cheaper)
-- Auto-scale to zero during off-peak hours
+**Cost Optimization (already applied):**
+
+- No database (stateless design)
+- No Service Bus (static documents)
+- No user authentication infrastructure
+- Aggressive response caching (60%+ cache hit)
+- GPT-4o-mini as default model
 
 ---
 
@@ -508,87 +488,76 @@ class AzureOpenAIProvider:
 
 | Metric | Target | Strategy |
 |--------|--------|----------|
-| P50 Response Time | < 500ms | Redis cache, regional deployment |
-| P99 Response Time | < 3s | Circuit breakers, timeouts |
-| Embedding Lookup | < 50ms | Azure AI Search with replicas |
-| Cold Start | < 2s | Container Apps min replicas |
+| P50 Response Time | < 400ms | Redis cache |
+| P99 Response Time | < 2s | Timeouts, circuit breakers |
+| Cache Hit | 60%+ | Normalize questions, aggressive caching |
 
 ### Throughput Targets
 
 | Metric | Target |
 |--------|--------|
-| Concurrent Users | 100,000 |
-| Requests/Second | 10,000 |
-| Messages/Day | 50,000,000 |
+| Concurrent Users | 3,000 - 5,000 |
+| Requests/Second | 200 - 400 |
+| Messages/Day | 1,500,000 |
 
 ### Load Testing
 
 ```bash
 # Example k6 load test
-k6 run --vus 1000 --duration 30m load_test.js
+k6 run --vus 500 --duration 30m load_test.js
 ```
 
 ---
 
 ## Security & Compliance
 
-### Authentication Flow
+### Privacy-First Design
 
-```
-User ──▶ Entra ID ──▶ JWT Token ──▶ API Management ──▶ Container Apps
-                          │
-                          ▼
-                    Token Validation
-                    + Rate Limiting
-                    + Scope Check
-```
+| Aspect | Implementation |
+|--------|----------------|
+| **No PII** | No user accounts, no email, no tracking |
+| **No persistence** | Conversations expire after 15 minutes |
+| **No cookies** | Stateless API, session ID in request body |
+| **GDPR compliant** | Nothing to delete (no data stored) |
 
 ### Security Checklist
 
 - [ ] TLS 1.3 everywhere
-- [ ] Azure Private Link for databases
-- [ ] Key Vault for all secrets
-- [ ] Managed Identity (no API keys in code)
-- [ ] Network Security Groups
-- [ ] DDoS Protection Standard
 - [ ] WAF rules for OWASP Top 10
-- [ ] Data encryption at rest (AES-256)
-- [ ] Audit logging to Log Analytics
-- [ ] GDPR compliance (data residency, right to delete)
+- [ ] DDoS Protection (Front Door included)
+- [ ] Rate limiting per IP
+- [ ] Input validation and sanitization
+- [ ] No secrets in code (Key Vault)
+- [ ] Content filtering on LLM responses
 
 ---
 
 ## Monitoring & Observability
 
-### Key Metrics Dashboard
+### Key Metrics
+
+| Metric | Alert Threshold |
+|--------|-----------------|
+| Error Rate | > 1% for 5 min |
+| P99 Latency | > 3s |
+| Cache Hit Rate | < 40% |
+| Rate Limit Hits | > 1000/hour |
+| LLM Token Usage | > $500/day |
+
+### Simple Dashboard
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  RAG Chatbot - Production Dashboard                          │
-├──────────────────┬──────────────────┬────────────────────────┤
-│  Active Users    │  Requests/min    │  Error Rate            │
-│  ████████ 47.2K  │  ████████ 8,234  │  ██ 0.3%              │
-├──────────────────┴──────────────────┴────────────────────────┤
-│  Response Time (P95)                                         │
-│  ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▂▃▄▅▆▇█▇▆▅▄▃▂▁  avg: 847ms               │
-├──────────────────────────────────────────────────────────────┤
-│  Token Usage (24h)                                           │
-│  Input: 12.3M tokens    Output: 8.7M tokens    Cost: $1,247  │
-├──────────────────────────────────────────────────────────────┤
-│  Cache Hit Rate                                              │
-│  Embeddings: 82%    Responses: 34%    Sessions: 97%         │
-└──────────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+|  RAG Chatbot - Production Dashboard                      |
++------------------+-------------------+-------------------+
+|  Requests/min    |  Cache Hit Rate   |  Error Rate       |
+|  ======== 234    |  ======== 64%     |  == 0.2%          |
++------------------+-------------------+-------------------+
+|  Response Time (P95): 847ms                              |
+|  Daily Token Cost: $312                                  |
+|  Rate Limited IPs: 47                                    |
++----------------------------------------------------------+
 ```
-
-### Alerts Configuration
-
-| Alert | Condition | Action |
-|-------|-----------|--------|
-| High Error Rate | > 1% for 5 min | Page on-call |
-| Latency Spike | P99 > 5s | Scale up + notify |
-| LLM Quota Warning | > 80% usage | Notify team |
-| Database CPU | > 80% for 10 min | Auto-scale |
-| Cache Miss Rate | > 50% | Investigate |
 
 ### Distributed Tracing
 
@@ -618,17 +587,22 @@ async def handle_chat(request: ChatRequest):
 
 ## Summary
 
-Scaling from a single-user CLI to 10M users requires:
+For a **public, stateless chatbot** with a small document corpus:
 
-1. **Replacing local components** with managed Azure services
-2. **Adding async patterns** throughout the codebase
-3. **Implementing multi-layer caching** for cost and latency
-4. **Building proper observability** for production operations
-5. **Investing in security** and compliance from day one
+| Aspect | Approach |
+|--------|----------|
+| **User data** | None stored |
+| **Conversations** | Ephemeral (15 min TTL in Redis) |
+| **Documents** | Pre-indexed at deployment |
+| **Scaling** | Container Apps auto-scale |
+| **Cost control** | Aggressive caching + GPT-4o-mini |
 
-The modular architecture already in place (swappable providers) provides a solid foundation. The estimated timeline is **16 weeks** with an estimated monthly infrastructure cost of **~$82,000**.
+**Estimated timeline:** 6 weeks  
+**Estimated monthly cost:** ~$11,800
+
+The simplified architecture removes significant infrastructure while maintaining the ability to handle 300K daily users.
 
 ---
 
-*Document Version: 1.0*  
+*Document Version: 2.0*  
 *Last Updated: December 2025*
