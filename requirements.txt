@@ -1,37 +1,128 @@
-# =============================================================================
-# Core LangChain
-# =============================================================================
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-community>=0.3.0
-langchain-text-splitters>=0.3.0
-
-# =============================================================================
-# LLM Providers (install the one you need)
-# =============================================================================
-langchain-openai>=0.2.0       # OpenAI & Azure OpenAI
-# langchain-anthropic>=0.3.0  # Anthropic Claude (uncomment to use)
-# langchain-ollama>=0.2.0     # Ollama local models (uncomment to use)
-
-# =============================================================================
-# Embedding Providers (install the one you need)
-# =============================================================================
-# langchain-huggingface>=0.1.0  # HuggingFace local embeddings (uncomment to use)
-# sentence-transformers>=2.2.0  # Required for HuggingFace embeddings
-
-# =============================================================================
-# Vector Stores (install the one you need)
-# =============================================================================
-langchain-chroma>=0.1.0    # ChromaDB (default)
-chromadb>=0.5.0
-# faiss-cpu>=1.7.0         # FAISS (uncomment to use)
-
-# =============================================================================
-# Document Processing
-# =============================================================================
-pypdf>=4.0.0
-
-# =============================================================================
-# Utilities
-# =============================================================================
-python-dotenv>=1.0.0
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.2
+aiosignal==1.4.0
+annotated-types==0.7.0
+anyio==4.12.0
+attrs==25.4.0
+backoff==2.2.1
+bcrypt==5.0.0
+build==1.3.0
+cachetools==6.2.4
+certifi==2025.11.12
+charset-normalizer==3.4.4
+chromadb==1.4.0
+click==8.3.1
+colorama==0.4.6
+coloredlogs==15.0.1
+dataclasses-json==0.6.7
+distro==1.9.0
+durationpy==0.10
+filelock==3.20.1
+flatbuffers==25.12.19
+frozenlist==1.8.0
+fsspec==2025.12.0
+google-auth==2.45.0
+googleapis-common-protos==1.72.0
+greenlet==3.3.0
+grpcio==1.76.0
+h11==0.16.0
+hf-xet==1.2.0
+httpcore==1.0.9
+httptools==0.7.1
+httpx==0.28.1
+httpx-sse==0.4.3
+huggingface_hub==1.2.3
+humanfriendly==10.0
+idna==3.11
+importlib_metadata==8.7.1
+importlib_resources==6.5.2
+jiter==0.12.0
+jsonpatch==1.33
+jsonpointer==3.0.0
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1
+kubernetes==34.1.0
+langchain==1.2.0
+langchain-chroma==1.1.0
+langchain-classic==1.0.1
+langchain-community==0.4.1
+langchain-core==1.2.5
+langchain-ollama==1.0.1
+langchain-openai==1.1.6
+langchain-text-splitters==1.1.0
+langgraph==1.0.5
+langgraph-checkpoint==3.0.1
+langgraph-prebuilt==1.0.5
+langgraph-sdk==0.3.1
+langsmith==0.5.1
+markdown-it-py==4.0.0
+marshmallow==3.26.2
+mdurl==0.1.2
+mmh3==5.2.0
+mpmath==1.3.0
+multidict==6.7.0
+mypy_extensions==1.1.0
+numpy==2.4.0
+oauthlib==3.3.1
+ollama==0.6.1
+onnxruntime==1.23.2
+openai==2.14.0
+opentelemetry-api==1.39.1
+opentelemetry-exporter-otlp-proto-common==1.39.1
+opentelemetry-exporter-otlp-proto-grpc==1.39.1
+opentelemetry-proto==1.39.1
+opentelemetry-sdk==1.39.1
+opentelemetry-semantic-conventions==0.60b1
+orjson==3.11.5
+ormsgpack==1.12.1
+overrides==7.7.0
+packaging==25.0
+posthog==5.4.0
+propcache==0.4.1
+protobuf==6.33.2
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+pybase64==1.4.3
+pydantic==2.12.5
+pydantic-settings==2.12.0
+pydantic_core==2.41.5
+Pygments==2.19.2
+pypdf==6.5.0
+PyPika==0.48.9
+pyproject_hooks==1.2.0
+pyreadline3==3.5.4
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+PyYAML==6.0.3
+referencing==0.37.0
+regex==2025.11.3
+requests==2.32.5
+requests-oauthlib==2.0.0
+requests-toolbelt==1.0.0
+rich==14.2.0
+rpds-py==0.30.0
+rsa==4.9.1
+shellingham==1.5.4
+six==1.17.0
+sniffio==1.3.1
+SQLAlchemy==2.0.45
+sympy==1.14.0
+tenacity==9.1.2
+tiktoken==0.12.0
+tokenizers==0.22.1
+tqdm==4.67.1
+typer==0.21.0
+typer-slim==0.21.0
+typing-inspect==0.9.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+urllib3==2.3.0
+uuid_utils==0.12.0
+uvicorn==0.40.0
+watchfiles==1.1.1
+websocket-client==1.9.0
+websockets==15.0.1
+xxhash==3.6.0
+yarl==1.22.0
+zipp==3.23.0
+zstandard==0.25.0
