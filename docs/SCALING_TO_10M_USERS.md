@@ -425,8 +425,10 @@ class AzureOpenAIProvider:
 **Azure OpenAI Provisioning:**
 
 - Standard Pay-as-you-go is sufficient for this volume
-- Estimate: 300k users x 5 msgs/day x 1000 tokens = 1.5B tokens/month
-- Cost Strategy: Use gpt-4o-mini for 80% of queries to keep costs under $15k/month
+- **Gross Demand:** 300k users x 5 msgs/day x 1k tokens = 1.5B tokens/day (45B/month)
+- **Net Demand (after 60% cache hit):** ~18B tokens/month
+- **Cost Basis:** GPT-4o-mini (~$0.30/1M tokens blended) = ~$5,400/month
+- **Budget Buffer:** Set to $10,000 to allow for lower cache hits or occasional GPT-4o usage
 
 ---
 
