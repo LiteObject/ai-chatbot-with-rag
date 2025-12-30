@@ -159,3 +159,8 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 flagged/log.csv
+.sqlite3/
+
+# Vector store database files
+*.bin
+*.sqlite3
