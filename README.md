@@ -21,7 +21,13 @@ ai-chatbot-with-rag/
 ├── requirements.txt    # Python dependencies
 ├── .env.example        # Environment variable template
 ├── docs/               # Place your PDF files here
-└── chroma_db/          # Vector store (auto-created)
+├── api/                # FastAPI REST API
+│   └── main.py         # API endpoints (/chat, /health)
+├── cache/              # Caching layer
+│   └── response_cache.py  # Redis-based response cache
+├── middleware/         # API middleware
+│   └── rate_limit.py   # IP-based rate limiting
+└── vector_store_db/    # Vector store (auto-created)
 ```
 
 ## Architecture
@@ -76,12 +82,51 @@ ai-chatbot-with-rag/
 
 ### Usage
 
-Run the chatbot:
+#### CLI Mode
+
+Run the chatbot in the terminal:
 ```bash
 python main.py
 ```
 
-Example interaction:
+#### API Mode
+
+Start the FastAPI server:
+```bash
+.\.venv\Scripts\python.exe -m uvicorn api.main:app --reload
+```
+
+The API will be available at `http://127.0.0.1:8000`.
+
+**Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/chat` | Send a message and get a response |
+| GET | `/health` | Health check |
+
+**Example request:**
+```bash
+curl -X POST "http://127.0.0.1:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is the main topic?"}'
+```
+
+**Example response:**
+```json
+{
+  "answer": "The main topic is...",
+  "session_id": "abc123",
+  "sources": []
+}
+```
+
+**Test the API:**
+```bash
+python test_api.py
+```
+
+Example CLI interaction:
 ```
 ==================================================
 AI Chatbot with RAG
@@ -121,6 +166,17 @@ EMBEDDING_MODEL=text-embedding-3-small
 CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 RETRIEVER_K=3
+
+# API Mode (optional)
+REDIS_URL=redis://localhost:6379  # For caching (optional for local dev)
+```
+
+## Docker
+
+Build and run with Docker:
+```bash
+docker build -t rag-chatbot .
+docker run -p 8000:8000 --env-file .env rag-chatbot
 ```
 
 ## License

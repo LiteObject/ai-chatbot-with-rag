@@ -106,6 +106,20 @@ Context:
         )
         return response
 
+    async def chat_async(
+        self, question: str, session_id: str = "default"
+    ) -> tuple[str, list[str]]:
+        """Send a question to the chatbot and get a response asynchronously."""
+        # Note: The current chain structure returns a string directly.
+        # To get sources, we would need to modify the chain to return the context as well.
+        # For now, we will return the answer and an empty list of sources,
+        # or we can modify the chain to return source documents.
+
+        response = await self.chain.ainvoke(
+            {"input": question}, config={"configurable": {"session_id": session_id}}
+        )
+        return response, []
+
     def reset_conversation(self, session_id: str = "default") -> None:
         """Reset the conversation history for a session."""
         clear_session_history(session_id)
