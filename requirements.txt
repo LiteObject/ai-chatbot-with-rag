@@ -17,7 +17,7 @@ coloredlogs==15.0.1
 dataclasses-json==0.6.7
 distro==1.9.0
 durationpy==0.10
-filelock==3.20.1
+filelock==3.20.3
 flatbuffers==25.12.19
 frozenlist==1.8.0
 fsspec==2025.12.0
